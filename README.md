@@ -116,6 +116,8 @@ L'architecture est modulaire et extensible en quelques lignes :
 - **Formats inconnus** : l'outil extrait ce qui est récupérable (chaînes de caractères, flux compressés cachés, structure à enregistrements fixes) et fournit des indices, mais ne peut pas deviner la signification des champs sans spécification.
 - **Access (`.mdb`/`.accdb`)** : nécessite `mdbtools` installé. La prise en charge de `.accdb` y est partielle.
 
+---
+
 ## ⚙️ Tests
 
 Une suite de tests automatisée est fournie avec `pytest` :
