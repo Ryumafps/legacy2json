@@ -110,6 +110,14 @@ L'architecture est modulaire et extensible en quelques lignes :
 
 ---
 
+## ⚠️ Limites connues
+
+- **Validé sur des fichiers synthétiques**, construits d'après les spécifications binaires des formats. Pas encore testé à grande échelle sur de vrais fichiers d'époque (Paradox, Lotus 1-2-3, Clarion…).
+- **Mémos DBF** : les fichiers compagnons `.dbt` (dBase III/IV) et `.fpt` (FoxPro) sont lus automatiquement s'ils sont dans le même dossier que le `.dbf` (casse ignorée). Sinon, seul le numéro de bloc est conservé.
+- **Non gérés** : dBase 7, chiffrements à clé multi-octets (seuls XOR/ADD mono-octet sont détectés), fichiers protégés par mot de passe.
+- **Formats inconnus** : l'outil extrait ce qui est récupérable (chaînes de caractères, flux compressés cachés, structure à enregistrements fixes) et fournit des indices, mais ne peut pas deviner la signification des champs sans spécification.
+- **Access (`.mdb`/`.accdb`)** : nécessite `mdbtools` installé. La prise en charge de `.accdb` y est partielle.
+
 ## ⚙️ Tests
 
 Une suite de tests automatisée est fournie avec `pytest` :
