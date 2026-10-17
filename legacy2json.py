@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mounir
 """
 legacy2json - récupère les données de fichiers de formats anciens/fermés et les écrit en JSON.
 
@@ -177,54 +179,64 @@ def detect(d):
 
 
 # ───────────────────────── support mémo DBF (.dbt / .fpt) ─────────────────────────
-def _load_memo(dbf_path):
-    """Cherche le fichier mémo compagnon (.dbt/.fpt) et renvoie get_memo(block) ou None."""
+def _find_companion(dbf_path):
+    """Cherche <nom>.dbt / <nom>.fpt sans tenir compte de la casse (DOS : CLIENTS.DBT à côté de clients.dbf)."""
+    p = Path(dbf_path)
+    try:
+        siblings = list(p.parent.iterdir())
+    except OSError:
+        return None
+    for ext in (".dbt", ".fpt"):
+        for f in siblings:
+            if f.suffix.lower() == ext and f.stem.lower() == p.stem.lower() and f.is_file():
+                return f
+    return None
+
+
+def _load_memo(dbf_path, enc="cp1252"):
+    """Renvoie get_memo(block) -> str | bytes | None, ou None si aucun fichier mémo compagnon.
+    Le texte est décodé avec la page de code du DBF (enc), pas en latin-1."""
     if dbf_path is None:
         return None
-    stem = Path(dbf_path).stem
-    parent = Path(dbf_path).parent
-    # Chercher les fichiers compagnons possibles
-    for ext in (".dbt", ".DBT", ".fpt", ".FPT"):
-        mp = parent / (stem + ext)
-        if mp.exists():
-            try:
-                md = mp.read_bytes()
-            except Exception:
-                continue
-            is_fpt = ext.lower() == ".fpt"
-            if is_fpt:
-                # FoxPro .fpt : taille de bloc à l'offset 6 (2 octets big-endian)
-                blksz = struct.unpack_from(">H", md, 6)[0] if len(md) >= 8 else 64
-                if blksz == 0:
-                    blksz = 64
-                def get_memo_fpt(block, _md=md, _bs=blksz):
-                    if block <= 0:
-                        return None
-                    off = block * _bs
-                    if off + 8 > len(_md):
-                        return None
-                    mtype, mlen = struct.unpack_from(">II", _md, off)
-                    data = _md[off + 8: off + 8 + mlen]
-                    if mtype == 1:  # texte
-                        return data.decode("latin-1", "replace")
-                    return data  # binaire (image, OLE…)
-                log.debug("mémo FoxPro chargé : %s (bloc=%d octets)", mp, blksz)
-                return get_memo_fpt
-            else:
-                # dBase III/IV .dbt : blocs de 512 octets, texte terminé par \x1a
-                def get_memo_dbt(block, _md=md):
-                    if block <= 0:
-                        return None
-                    off = block * 512
-                    if off >= len(_md):
-                        return None
-                    end = _md.find(b"\x1a", off)
-                    if end == -1:
-                        end = min(off + 64 * 512, len(_md))  # limite raisonnable
-                    return _md[off:end].decode("latin-1", "replace")
-                log.debug("mémo dBase chargé : %s", mp)
-                return get_memo_dbt
-    return None
+    mp = _find_companion(dbf_path)
+    if mp is None:
+        return None
+    try:
+        md = mp.read_bytes()
+    except Exception as e:
+        log.warning("fichier mémo illisible %s : %s", mp, e)
+        return None
+    if mp.suffix.lower() == ".fpt":
+        # FoxPro : taille de bloc à l'offset 6 (big-endian), chaque mémo = type(4) + longueur(4) + données
+        bs = struct.unpack_from(">H", md, 6)[0] if len(md) >= 8 else 64
+        bs = bs or 64
+
+        def get_memo(block):
+            off = block * bs
+            if block <= 0 or off + 8 > len(md):
+                return None
+            mtype, mlen = struct.unpack_from(">II", md, off)
+            data = md[off + 8: off + 8 + mlen]
+            return data.decode(enc, "replace") if mtype == 1 else data  # 1 = texte, sinon binaire
+        log.debug("mémo FoxPro chargé : %s (bloc=%d octets)", mp, bs)
+        return get_memo
+    # dBase .dbt : taille de bloc en en-tête (offset 20) pour dBase IV, 512 pour dBase III
+    bs = struct.unpack_from("<H", md, 20)[0] if len(md) >= 22 else 0
+    bs = bs if 0 < bs <= 32768 else 512
+
+    def get_memo(block):
+        off = block * bs
+        if block <= 0 or off >= len(md):
+            return None
+        if md[off:off + 4] == b"\xff\xff\x08\x00" and off + 8 <= len(md):  # dBase IV : en-tête de 8 octets
+            mlen = struct.unpack_from("<I", md, off + 4)[0]
+            data = md[off + 8: off + max(mlen, 8)].rstrip(b"\x00\x1a")
+        else:  # dBase III : texte terminé par 0x1A
+            end = md.find(b"\x1a", off)
+            data = md[off: len(md) if end == -1 else end]
+        return data.decode(enc, "replace")
+    log.debug("mémo dBase chargé : %s (bloc=%d octets)", mp, bs)
+    return get_memo
 
 
 # ───────────────────────── parseurs ─────────────────────────
@@ -232,7 +244,7 @@ def parse_dbf(d, depth, source_path=None):
     nrec, hlen, rlen = struct.unpack_from("<IHH", d, 4)
     enc = {0x01: "cp437", 0x02: "cp850", 0x03: "cp1252", 0x57: "cp1252", 0x58: "cp1252", 0x59: "cp1252",
            0x64: "cp852", 0x65: "cp866", 0xC8: "cp1250", 0xC9: "cp1251", 0xCA: "cp1254", 0xCB: "cp1253"}.get(d[29], "cp1252")
-    get_memo = _load_memo(source_path)
+    get_memo = _load_memo(source_path, enc)
     fields, pos = [], 32
     while pos + 32 <= len(d) and d[pos] != 0x0D:
         fields.append((d[pos:pos + 11].split(b"\0")[0].decode("ascii", "replace"),
@@ -256,7 +268,7 @@ def parse_dbf(d, depth, source_path=None):
             row["_deleted"] = True
         rows.append(row)
     y = d[1] + (2000 if d[1] < 80 else 1900)
-    has_memo_fields = d[0] in (0x83, 0x8B, 0xF5, 0x30)
+    has_memo_fields = any(f[1] in "MGP" for f in fields)
     memo_note = None
     if has_memo_fields and not get_memo:
         memo_note = "champs mémo : numéro de bloc seulement (fichier .dbt/.fpt séparé)"
@@ -694,7 +706,7 @@ def analyze(d, depth=0, source_path=None):
                 parsed = PARSERS[kind](d, depth)
         except Exception as e:
             warn.append(f"{kind}: {type(e).__name__}: {e}")
-            log.warning("erreur parseur %s : %s", kind, e)
+            log.info("erreur parseur %s : %s", kind, e)
     elif kind == "text":
         t = decode_text(d)
         try:
@@ -765,7 +777,10 @@ def main():
         else:
             Path(str(f) + ".json").write_text(txt, encoding="utf-8")
         if a.out or not single:
-            print(f"[{'ERR' if 'error' in r else 'ok'}] {f} -> {r.get('detected', '?')}", file=sys.stderr)
+            if "error" in r:
+                log.error("%s : %s", f, r["error"])
+            else:
+                log.info("%s -> %s", f, r.get("detected", "?"))
 
 
 if __name__ == "__main__":

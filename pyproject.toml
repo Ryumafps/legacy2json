@@ -4,16 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "legacy2json"
-version = "0.1.0"
-description = "Récupère et extrait les données de formats de fichiers anciens ou fermés vers du JSON standard."
+version = "0.3.0"
+description = "Récupère les données de formats de fichiers anciens ou fermés (DBF, OLE2, SQLite, ZIP…) vers du JSON standard."
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [
-    { name = "Mouni" }
+    { name = "Mounir" }
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Database",
@@ -29,3 +31,6 @@ dev = [
 
 [project.scripts]
 legacy2json = "legacy2json:main"
+
+[tool.setuptools]
+py-modules = ["legacy2json"]
