@@ -98,8 +98,6 @@ Pour une table DBF d'époque :
 }
 ```
 
----
-
 ## 🔬 Comment ajouter un nouveau format ?
 
 L'architecture est modulaire et extensible en quelques lignes :
